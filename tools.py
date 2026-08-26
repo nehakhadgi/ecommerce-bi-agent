@@ -98,7 +98,7 @@ def generate_chart(df, chart_type, data_source):
     fig, ax = plt.subplots(figsize=(10, 6))
     # Build the chart based on data source and chart type
     if data_source == "region":
-        data = df.groupby("Region")["Sales Amount"].sum().sort_values(ascending=False)
+        data = df.groupby("Region")["Sales"].sum().sort_values(ascending=False)
         if chart_type == "bar":
             data.plot(kind="bar", ax=ax, color=["#2196F3", "#4CAF50", "#FF9800", "#F44336"])
         else:
@@ -106,7 +106,7 @@ def generate_chart(df, chart_type, data_source):
         ax.set_title("Revenue by Region", fontsize=16)
         ax.set_ylabel("Revenue ($)")
     elif data_source == "category":
-        data = df.groupby("Category")["Sales Amount"].sum().sort_values(ascending=False)
+        data = df.groupby("Category")["Sales"].sum().sort_values(ascending=False)
         if chart_type == "bar":
             data.plot(kind="bar", ax=ax, color=["#2196F3", "#4CAF50", "#FF9800"])
         else:
