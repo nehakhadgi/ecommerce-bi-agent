@@ -143,29 +143,38 @@ if prompt := st.chat_input("Ask a business question..."):
             )
             part = response.candidates[0].content.parts[0]
             chart_path = None
+
+            # Check if Gemini wants to call a tool
             if part.function_call:
                 fc = part.function_call
                 func_name = fc.name
                 func_args = dict(fc.args) if fc.args else {}
                 st.caption(f"🔧 Agent called: `{func_name}({func_args})`")
+                
+                # Execute the tool and get results
                 if func_name in TOOL_FUNCTIONS:
                     result = TOOL_FUNCTIONS[func_name](**func_args)
                 else:
                     result = f"Error: Unknown tool '{func_name}'"
-                                    # Detect chart results and prepare display
+                    
+                # Detect chart results and prepare display
                 if func_name == "generate_chart" and os.path.exists(str(result)):
                     chart_path = result
                     tool_result_text = f"Chart generated and saved to {result}"
                 else:
                     tool_result_text = result
+                    
+                # Send the tool result back to Gemini for a final answer
                 contents.append(response.candidates[0].content)
-                fn_response_part = types.Part.from_function_response(
-                    name=fc.name,
-                    response={"result": tool_result_text},
-                    id=fc.id,
+                fn_response_part = types.Part(
+                    function_response=types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response={"result": tool_result_text},
+                    )
                 )
-                                
                 contents.append(types.Content(role="tool", parts=[fn_response_part]))
+                
                 final_response = client.models.generate_content(
                     model="gemini-3.6-flash",
                     contents=contents,
@@ -174,10 +183,11 @@ if prompt := st.chat_input("Ask a business question..."):
                 answer = final_response.text
             else:
                 answer = part.text
+                
             st.markdown(answer)
             # Display the chart image if one was generated
             if chart_path:
                 st.image(chart_path)
 
-    msg = {"role": "assistant", "content": answer, "chart_path": chart_path}
-    st.session_state.messages.append(msg)
+    # Save the answer and chart path to session state
+    st.session_state.messages.append({"role": "assistant", "content": answer, "chart_path": chart_path})
