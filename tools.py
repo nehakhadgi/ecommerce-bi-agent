@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-def load_data(filepath= r"C:\Users\lenovo\Desktop\ecommerce-agent\ecommerce_sales_data .csv"):
+def load_data(filepath= "ecommerce_sales_data.csv"):
     # Read the CSV file into a pandas DataFrame
     df = pd.read_csv(filepath)
     # Convert Order Date from text to datetime for time-based analysis
