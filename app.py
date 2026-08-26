@@ -164,7 +164,8 @@ if prompt := st.chat_input("Ask a business question..."):
                     response={"result": tool_result_text},
                     id=fc.id,
                 )
-                contents.append(types.Content(role="user", parts=[fn_response_part]))
+                                # NEW CODE (Use this instead):
+                contents.append(types.Content(role="tool", parts=[fn_response_part]))
                 final_response = client.models.generate_content(
                     model="gemini-3.6-flash",
                     contents=contents,
