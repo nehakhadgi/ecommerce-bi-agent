@@ -146,7 +146,7 @@ if prompt := st.chat_input("Ask a business question..."):
                 )
             ]
             response = client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash", # <-- Upgraded to stable gemini-2.5-flash!
                 contents=contents,
                 config=config,
             )
@@ -195,11 +195,11 @@ if prompt := st.chat_input("Ask a business question..."):
                         response={"result": tool_result_text},
                     )
                 )
-                # EXPERT FIX: Change role from "tool" to "user" to satisfy Gemini strict gateway validation!
+                # Map tool role to user for Gemini API gateway compliance
                 contents.append(types.Content(role="user", parts=[fn_response_part]))
                 
                 final_response = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.5-flash", # <-- Upgraded to stable gemini-2.5-flash!
                     contents=contents,
                     config=config,
                 )
