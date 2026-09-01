@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import pandas as pd
 from google import genai
 from google.genai import types
 from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_products, get_category_performance, generate_chart
@@ -137,8 +138,12 @@ if prompt := st.chat_input("Ask a business question..."):
                 system_instruction=SYSTEM_PROMPT,
             )
             # Structured Content & Part objects for payload
-            contents = [ types.Content( role="user", parts=[types.Part.from_text(text=prompt)] ) ]
-            
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)]
+                )
+            ]
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
                 contents=contents,
@@ -165,7 +170,13 @@ if prompt := st.chat_input("Ask a business question..."):
                     chart_path = result
                     tool_result_text = f"Chart generated and saved to {result}"
                 else:
-                    tool_result_text = result
+                    # EXPERT FIX: Safely convert pandas data to native JSON-serializable types
+                    if isinstance(result, pd.DataFrame):
+                        tool_result_text = result.to_dict(orient="records")
+                    elif isinstance(result, pd.Series):
+                        tool_result_text = result.to_dict()
+                    else:
+                        tool_result_text = result
                     
                 # Send the tool result back to Gemini for a final answer
                 contents.append(response.candidates[0].content)
