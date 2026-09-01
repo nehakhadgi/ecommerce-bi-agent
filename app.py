@@ -1,9 +1,11 @@
 import os
 import json
+import time  # Added for retry pauses
 import streamlit as st
 import pandas as pd
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError  # Catch SDK-specific API exceptions
 from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_products, get_category_performance, generate_chart
 
 # Configure the Streamlit page
@@ -23,6 +25,25 @@ def get_data():
     return load_data()
 
 df = get_data()
+
+# Helper function to execute API calls with automatic retry backoff
+def generate_content_with_retry(client, model, contents, config, max_retries=3, delay=5):
+    for attempt in range(max_retries):
+        try:
+            return client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+        except APIError as e:
+            # If server is overloaded (503), print warning and sleep before retrying
+            if e.code == 503 and attempt < max_retries - 1:
+                st.warning(f"⚠️ Google API servers are busy (503). Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            raise e  # Re-raise error if we have exhausted retries or encountered another error
+        except Exception as e:
+            raise e
 
 # Map tool names to their Python functions
 TOOL_FUNCTIONS = {
@@ -145,11 +166,22 @@ if prompt := st.chat_input("Ask a business question..."):
                     parts=[types.Part.from_text(text=prompt)]
                 )
             ]
-            response = client.models.generate_content(
-                model="gemini-3.6-flash", # <-- Aligned to required active model
-                contents=contents,
-                config=config,
-            )
+            
+            # First execution using our robust retry wrapper
+            try:
+                response = generate_content_with_retry(
+                    client=client,
+                    model="gemini-3.6-flash",
+                    contents=contents,
+                    config=config,
+                )
+            except APIError as e:
+                st.error(f"❌ Google API is currently unavailable: {e.message}. Please wait a few seconds and try again!")
+                st.stop()
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {str(e)}")
+                st.stop()
+                
             part = response.candidates[0].content.parts[0]
             chart_path = None
 
@@ -198,12 +230,18 @@ if prompt := st.chat_input("Ask a business question..."):
                 # Map tool role to user for Gemini API gateway compliance
                 contents.append(types.Content(role="user", parts=[fn_response_part]))
                 
-                final_response = client.models.generate_content(
-                    model="gemini-3.6-flash", # <-- Aligned to required active model
-                    contents=contents,
-                    config=config,
-                )
-                answer = final_response.text
+                # Second execution using our robust retry wrapper
+                try:
+                    final_response = generate_content_with_retry(
+                        client=client,
+                        model="gemini-3.6-flash",
+                        contents=contents,
+                        config=config,
+                    )
+                    answer = final_response.text
+                except APIError as e:
+                    st.error(f"❌ Google API is currently unavailable: {e.message}. Please wait a few seconds and try again!")
+                    st.stop()
             else:
                 answer = part.text
                 
