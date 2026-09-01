@@ -137,12 +137,8 @@ if prompt := st.chat_input("Ask a business question..."):
                 system_instruction=SYSTEM_PROMPT,
             )
             # Structured Content & Part objects for payload
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=prompt)]
-                )
-            ]
+            contents = [ types.Content( role="user", parts=[types.Part.from_text(text=prompt)] ) ]
+            
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
                 contents=contents,
