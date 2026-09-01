@@ -203,9 +203,11 @@ with st.sidebar:
     st.markdown("**Categories:** Electronics, Accessories, Office")
     st.markdown("**Regions:** North, South, East, West")
 
-# Initialize chat history in session state
+# Initialize chat history pipelines in session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "api_history" not in st.session_state:
+    st.session_state.api_history = []
 
 # Replay previous messages on page rerun
 for message in st.session_state.messages:
@@ -228,24 +230,17 @@ if prompt := st.chat_input("Ask a business question..."):
                 system_instruction=SYSTEM_PROMPT,
             )
             
-            # --- EXPERT FIX: THE STATEFUL CONVERSATION MEMORY PIPELINE ---
-            # Reconstruct the entire past conversation history into structured Content objects
-            contents = []
-            for msg in st.session_state.messages:
-                role = "user" if msg["role"] == "user" else "model"
-                msg_content = msg.get("content") or ""
-                contents.append(
-                    types.Content(
-                        role=role,
-                        parts=[types.Part.from_text(text=msg_content)]
-                    )
-                )
-            # -------------------------------------------------------------
+            # 1. Append the new user prompt directly to high-fidelity api_history
+            user_content = types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)]
+            )
+            st.session_state.api_history.append(user_content)
             
             # Execute with multi-key rotation and retry logic
             try:
                 response = generate_content_with_rotation(
-                    contents=contents,
+                    contents=st.session_state.api_history,
                     config=config,
                     model="gemini-3.6-flash"
                 )
@@ -288,13 +283,14 @@ if prompt := st.chat_input("Ask a business question..."):
                     else:
                         tool_result_text = result
                     
-                contents.append(
-                    types.Content(
-                        role="model",
-                        parts=[part]
-                    )
+                # Append the model's function call content to api_history
+                model_fc_content = types.Content(
+                    role="model",
+                    parts=[part]
                 )
+                st.session_state.api_history.append(model_fc_content)
                 
+                # Append the tool's response content to api_history (using 'user' role for schema compatibility)
                 fn_response_part = types.Part(
                     function_response=types.FunctionResponse(
                         id=fc.id,
@@ -302,12 +298,13 @@ if prompt := st.chat_input("Ask a business question..."):
                         response={"result": tool_result_text},
                     )
                 )
-                contents.append(types.Content(role="user", parts=[fn_response_part]))
+                tool_content = types.Content(role="user", parts=[fn_response_part])
+                st.session_state.api_history.append(tool_content)
                 
                 # Execute follow-up with rotation
                 try:
                     final_response = generate_content_with_rotation(
-                        contents=contents,
+                        contents=st.session_state.api_history,
                         config=config,
                         model="gemini-3.6-flash"
                     )
@@ -315,12 +312,25 @@ if prompt := st.chat_input("Ask a business question..."):
                 except APIError as e:
                     st.error(f"❌ Google API error during summary: {e.message}. Please try again!")
                     st.stop()
+                    
+                # Append the model's final response content to api_history
+                model_final_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=answer)]
+                )
+                st.session_state.api_history.append(model_final_content)
             else:
                 answer = part.text
+                # Append the model's plain text response content to api_history
+                model_text_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=answer)]
+                )
+                st.session_state.api_history.append(model_text_content)
                 
             st.markdown(answer)
             if chart_path:
                 st.image(chart_path)
 
-    # Save details to session state
+    # Save details to session state messages for UI rendering
     st.session_state.messages.append({"role": "assistant", "content": answer, "chart_path": chart_path})
