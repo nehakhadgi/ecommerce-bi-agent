@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 import pandas as pd
 from google import genai
@@ -170,11 +171,13 @@ if prompt := st.chat_input("Ask a business question..."):
                     chart_path = result
                     tool_result_text = f"Chart generated and saved to {result}"
                 else:
-                    # EXPERT FIX: Safely convert pandas data to native JSON-serializable types
+                    # EXPERT FIX: Coerce Pandas/NumPy types to native Python types via JSON round-trip
                     if isinstance(result, pd.DataFrame):
-                        tool_result_text = result.to_dict(orient="records")
+                        # Use pandas native JSON engine to clean NumPy types and NaN values cleanly,
+                        # then read back into Python primitives (standard dicts/lists).
+                        tool_result_text = json.loads(result.to_json(orient="records", date_format="iso"))
                     elif isinstance(result, pd.Series):
-                        tool_result_text = result.to_dict()
+                        tool_result_text = json.loads(result.to_json(date_format="iso"))
                     else:
                         tool_result_text = result
                     
