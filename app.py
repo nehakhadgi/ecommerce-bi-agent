@@ -1,3 +1,4 @@
+
 import os
 import json
 import time  
@@ -11,33 +12,31 @@ from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_p
 # Configure the Streamlit page
 st.set_page_config(page_title="E-Commerce BI Agent", page_icon="📊", layout="wide")
 
-# --- MULTI-KEY ROTATION SYSTEM (QUOTE-PROOFED) ---
-# 1. Parse keys string from environment or secrets into an active list
+# --- MULTI-KEY ROTATION SYSTEM (WITH SECURE DIAGNOSTICS) ---
 keys_string = os.environ.get("GOOGLE_API_KEYS") or st.secrets.get("GOOGLE_API_KEYS") or ""
 
 API_KEYS = []
 if keys_string:
-    # Split by comma first
     raw_keys = keys_string.split(",")
     for k in raw_keys:
-        # Strip whitespaces AND any literal double or single quotation marks
         clean_k = k.strip().replace('"', '').replace("'", "")
         if clean_k:
             API_KEYS.append(clean_k)
 
 # Fallback to single key if multi-key string isn't found
+fallback_used = False
 if not API_KEYS:
     single_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
     if single_key:
         clean_single = single_key.strip().replace('"', '').replace("'", "")
         if clean_single:
             API_KEYS = [clean_single]
+            fallback_used = True
 
 if not API_KEYS:
     st.error("Please configure GOOGLE_API_KEYS in your secrets or .env file.")
     st.stop()
 
-# 2. Track active key index in session state so it persists between page reruns
 if "current_key_index" not in st.session_state:
     st.session_state.current_key_index = 0
 
@@ -46,7 +45,6 @@ def get_active_client():
     active_key = API_KEYS[st.session_state.current_key_index]
     return genai.Client(api_key=active_key)
 
-# 3. Execution wrapper with automatic key rotation and 503 backoff
 def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", max_503_retries=3, delay_503=5):
     attempts = len(API_KEYS)
     
@@ -54,7 +52,6 @@ def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", m
         try:
             client = get_active_client()
             
-            # Inner loop to handle temporary 503 server overloads
             for attempt_503 in range(max_503_retries):
                 try:
                     return client.models.generate_content(
@@ -71,7 +68,6 @@ def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", m
                     
         except APIError as e:
             err_str = str(e).lower()
-            # Detect key exhaustion (429) OR bad credentials (typically 400, 401, 403 or auth errors)
             is_auth_error = "credential" in err_str or "auth" in err_str or "key" in err_str or e.code in [400, 401, 403]
             
             if e.code == 429 or is_auth_error:
@@ -181,16 +177,30 @@ st.markdown(
     "The AI agent will autonomously choose the right analysis tool and return data-backed insights."
 )
 
-# Show dataset stats in the sidebar (FIXED to use 'Sales' column)
+# Show dataset stats and SECURE DIAGNOSTICS in the sidebar
 with st.sidebar:
     st.header("About the Dataset")
     st.metric("Total Orders", f"{len(df):,}")
     st.metric("Total Revenue", f"${df['Sales'].sum():,.0f}")
     st.metric("Total Profit", f"${df['Profit'].sum():,.0f}")
+    
+    st.markdown("---")
+    st.subheader("🔑 Secure API Key Diagnostic")
+    st.write(f"**Keys Detected:** {len(API_KEYS)}")
+    st.write(f"**Using Fallback Single Key?** {'Yes' if fallback_used else 'No'}")
+    st.write(f"**Active Key Index:** #{st.session_state.current_key_index + 1}")
+    
+    for idx, key in enumerate(API_KEYS):
+        # Mask the key for absolute security
+        if len(key) > 12:
+            masked = f"{key[:8]}...{key[-4:]}"
+        else:
+            masked = "INVALID_LENGTH"
+        st.write(f"Key #{idx+1}: `{masked}` (Chars: {len(key)})")
+        
     st.markdown("---")
     st.markdown("**Categories:** Electronics, Accessories, Office")
     st.markdown("**Regions:** North, South, East, West")
-    st.markdown("**Period:** 2022-2024")
 
 # Initialize chat history in session state
 if "messages" not in st.session_state:
