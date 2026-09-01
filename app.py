@@ -146,7 +146,7 @@ if prompt := st.chat_input("Ask a business question..."):
                 )
             ]
             response = client.models.generate_content(
-                model="gemini-2.5-flash", # <-- Upgraded to stable gemini-2.5-flash!
+                model="gemini-3.6-flash", # <-- Aligned to required active model
                 contents=contents,
                 config=config,
             )
@@ -199,7 +199,7 @@ if prompt := st.chat_input("Ask a business question..."):
                 contents.append(types.Content(role="user", parts=[fn_response_part]))
                 
                 final_response = client.models.generate_content(
-                    model="gemini-2.5-flash", # <-- Upgraded to stable gemini-2.5-flash!
+                    model="gemini-3.6-flash", # <-- Aligned to required active model
                     contents=contents,
                     config=config,
                 )
