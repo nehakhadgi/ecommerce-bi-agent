@@ -36,6 +36,7 @@ def get_active_client():
     return genai.Client(api_key=active_key)
 
 # 3. Execution wrapper with automatic key rotation and 503 backoff
+# 3. Execution wrapper with automatic key rotation and 503 backoff
 def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", max_503_retries=3, delay_503=5):
     attempts = len(API_KEYS)
     
@@ -59,17 +60,25 @@ def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", m
                     raise e
                     
         except APIError as e:
-            # If hit 429 daily quota or rate limit, rotate keys and try again!
-            if e.code == 429:
-                next_index = (st.session_state.current_key_index + 1) % len(API_KEYS)
+            err_str = str(e).lower()
+            # Detect key exhaustion (429) OR bad credentials (typically 400, 401, 403 or auth errors)
+            is_auth_error = "credential" in err_str or "auth" in err_str or "key" in err_str or e.code in [400, 401, 403]
+            
+            if e.code == 429 or is_auth_error:
+                current_bad_index = st.session_state.current_key_index
+                next_index = (current_bad_index + 1) % len(API_KEYS)
                 st.session_state.current_key_index = next_index
-                st.warning(f"⚠️ Key #{st.session_state.current_key_index} quota exhausted. Automatically rotating to Key #{next_index + 1}...")
+                
+                if is_auth_error:
+                    st.warning(f"⚠️ Key #{current_bad_index + 1} has invalid credentials. Skipping and trying Key #{next_index + 1}...")
+                else:
+                    st.warning(f"⚠️ Key #{current_bad_index + 1} quota exhausted. Automatically rotating to Key #{next_index + 1}...")
                 continue
             raise e
         except Exception as e:
             raise e
             
-    st.error("❌ All configured API key quotas are exhausted for today. Please try again tomorrow!")
+    st.error("❌ All configured API keys are either exhausted, invalid, or blocked. Please check your credentials!")
     st.stop()
 # ---------------------------------
 
