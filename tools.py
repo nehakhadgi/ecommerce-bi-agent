@@ -1,9 +1,15 @@
-import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+
+
 import tempfile
 import os
+import pandas as pd
+
+# 1. Import base matplotlib
+import matplotlib
+# 2. Tell matplotlib to use the non-interactive Agg backend BEFORE importing pyplot
+matplotlib.use("Agg")
+# 3. Import pyplot safely
+import matplotlib.pyplot as plt
 
 
 def load_data(filepath= "ecommerce_sales_data.csv"):
