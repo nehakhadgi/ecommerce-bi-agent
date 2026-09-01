@@ -2,8 +2,8 @@ import os
 import streamlit as st
 from google import genai
 from google.genai import types
-from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_products, get_category_performance
 from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_products, get_category_performance, generate_chart
+
 # Configure the Streamlit page
 st.set_page_config(page_title="E-Commerce BI Agent", page_icon="📊", layout="wide")
 
@@ -30,6 +30,7 @@ TOOL_FUNCTIONS = {
     "get_category_performance": lambda: get_category_performance(df),
     "generate_chart": lambda chart_type="bar", data_source="region": generate_chart(df, chart_type, data_source),
 }
+
 tool_declarations = [  # Declare the tools Gemini can choose from
     {
         "name": "get_sales_summary",
@@ -59,7 +60,7 @@ tool_declarations = [  # Declare the tools Gemini can choose from
         "description": "Get performance metrics for each product category (Electronics, Accessories, Office) including revenue, profit, margin, and average quantity per order.",
         "parameters": {"type": "object", "properties": {}},
     },
-        {
+    {
         "name": "generate_chart",
         "description": "Generate a chart visualization from the sales data. Use this when the user asks to see a chart, graph, or visualization.",
         "parameters": {
@@ -80,6 +81,7 @@ tool_declarations = [  # Declare the tools Gemini can choose from
         },
     },
 ]
+
 SYSTEM_PROMPT = (
     "You are an AI business intelligence agent for an e-commerce company. "
     "You have access to tools that analyze real sales data with 3,500 orders "
@@ -87,8 +89,6 @@ SYSTEM_PROMPT = (
     "When a user asks a business question, use the appropriate tool to get "
     "real data, then provide a clear, actionable answer based on the results. "
     "Always cite specific numbers from the data. If the question cannot be "
-    "answered with the available tools, say so honestly."
-
     "answered with the available tools, say so honestly. "
     "When the user asks for a chart, graph, or visualization, use the generate_chart tool."
 )
@@ -100,7 +100,7 @@ st.markdown(
     "The AI agent will autonomously choose the right analysis tool and return data-backed insights."
 )
 
-# Show dataset stats in the sidebar (Updated 'Sales Amount' to 'Sales' for your dataset)
+# Show dataset stats in the sidebar
 with st.sidebar:
     st.header("About the Dataset")
     st.metric("Total Orders", f"{len(df):,}")
@@ -110,6 +110,7 @@ with st.sidebar:
     st.markdown("**Categories:** Electronics, Accessories, Office")
     st.markdown("**Regions:** North, South, East, West")
     st.markdown("**Period:** 2022-2024")
+
 # Initialize chat history in session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -135,7 +136,7 @@ if prompt := st.chat_input("Ask a business question..."):
                 tools=[tools],
                 system_instruction=SYSTEM_PROMPT,
             )
-            # FIX: Initialize as a fully structured Content object instead of a raw string!
+            # FIX: Initialize the list with fully structured Content & Part objects!
             contents = [
                 types.Content(
                     role="user",
@@ -172,6 +173,8 @@ if prompt := st.chat_input("Ask a business question..."):
                     
                 # Send the tool result back to Gemini for a final answer
                 contents.append(response.candidates[0].content)
+                
+                # FIX: Bypasses the SDK TypeError by constructing types.Part directly
                 fn_response_part = types.Part(
                     function_response=types.FunctionResponse(
                         id=fc.id,
