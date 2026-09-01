@@ -216,6 +216,22 @@ for message in st.session_state.messages:
         if "chart_path" in message and message["chart_path"]:
             st.image(message["chart_path"])
 
+# Helper function to extract text securely from any GenerateContentResponse
+def extract_text_safely(response, fallback_text="Could not extract textual content from response."):
+    if not response or not response.candidates:
+        return fallback_text
+    
+    candidate = response.candidates[0]
+    if not candidate.content or not candidate.content.parts:
+        return fallback_text
+        
+    # Attempt to concatenate all text parts
+    text_parts = [p.text for p in candidate.content.parts if p.text]
+    if text_parts:
+        return "".join(text_parts)
+        
+    return fallback_text
+
 # Handle new user input
 if prompt := st.chat_input("Ask a business question..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -230,6 +246,12 @@ if prompt := st.chat_input("Ask a business question..."):
                 system_instruction=SYSTEM_PROMPT,
             )
             
+            # Re-verify and clean API history to prevent empty entries
+            st.session_state.api_history = [
+                item for item in st.session_state.api_history 
+                if item.parts and (item.parts[0].text or item.parts[0].function_call or item.parts[0].function_response)
+            ]
+            
             # 1. Append the new user prompt directly to high-fidelity api_history
             user_content = types.Content(
                 role="user",
@@ -237,7 +259,7 @@ if prompt := st.chat_input("Ask a business question..."):
             )
             st.session_state.api_history.append(user_content)
             
-            # Execute with multi-key rotation and retry logic
+            # Execute first call
             try:
                 response = generate_content_with_rotation(
                     contents=st.session_state.api_history,
@@ -253,6 +275,7 @@ if prompt := st.chat_input("Ask a business question..."):
                 
             part = response.candidates[0].content.parts[0]
             chart_path = None
+            answer = None
 
             # Check if Gemini wants to call a tool
             if part.function_call:
@@ -301,32 +324,52 @@ if prompt := st.chat_input("Ask a business question..."):
                 tool_content = types.Content(role="user", parts=[fn_response_part])
                 st.session_state.api_history.append(tool_content)
                 
-                # Execute follow-up with rotation
+                # Execute follow-up call
                 try:
                     final_response = generate_content_with_rotation(
                         contents=st.session_state.api_history,
                         config=config,
                         model="gemini-3.6-flash"
                     )
-                    answer = final_response.text
+                    # Use our secure text extractor!
+                    extracted_text = extract_text_safely(final_response, fallback_text=None)
+                    
+                    if extracted_text is not None:
+                        answer = extracted_text
+                    else:
+                        # ZERO-HISTORY FALLBACK: If the accumulated history call returns None,
+                        # attempt a stateless execution using only the current prompt and the tool response
+                        stateless_contents = [
+                            types.Content(role="user", parts=[types.Part.from_text(text=f"Process this tool output: {tool_result_text}. User prompt was: {prompt}")]),
+                        ]
+                        fallback_response = generate_content_with_rotation(
+                            contents=stateless_contents,
+                            config=config,
+                            model="gemini-3.6-flash"
+                        )
+                        answer = extract_text_safely(fallback_response, fallback_text="Could not summarize tool data due to temporary API limits.")
                 except APIError as e:
                     st.error(f"❌ Google API error during summary: {e.message}. Please try again!")
                     st.stop()
                     
-                # Append the model's final response content to api_history
-                model_final_content = types.Content(
-                    role="model",
-                    parts=[types.Part.from_text(text=answer)]
-                )
-                st.session_state.api_history.append(model_final_content)
+                # Append the final response content to api_history if successful
+                if answer:
+                    model_final_content = types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text=answer)]
+                    )
+                    st.session_state.api_history.append(model_final_content)
             else:
-                answer = part.text
-                # Append the model's plain text response content to api_history
+                answer = extract_text_safely(response, fallback_text="No text response generated.")
                 model_text_content = types.Content(
                     role="model",
                     parts=[types.Part.from_text(text=answer)]
                 )
                 st.session_state.api_history.append(model_text_content)
+                
+            # If all else fails, do not allow None to render
+            if answer is None:
+                answer = "The API was unable to construct a summary response. Please try submitting your query again!"
                 
             st.markdown(answer)
             if chart_path:
