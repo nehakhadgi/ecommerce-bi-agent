@@ -1,109 +1,66 @@
-
-
-
-import os
 import pandas as pd
-
-# 1. Import base matplotlib
 import matplotlib
-# 2. Tell matplotlib to use the non-interactive Agg backend BEFORE importing pyplot
+# Force Matplotlib to use a headless backend for cloud deployments
 matplotlib.use("Agg")
-# 3. Import pyplot safely
 import matplotlib.pyplot as plt
+import tempfile
+import os
 
-
-def load_data(filepath= "ecommerce_sales_data.csv"):
-    # Read the CSV file into a pandas DataFrame
+def load_data(filepath="ecommerce_sales_data.csv"):
+    """Load the sales dataset and convert dates."""
     df = pd.read_csv(filepath)
-    # Convert Order Date from text to datetime for time-based analysis
     df["Order Date"] = pd.to_datetime(df["Order Date"])
     return df
 
-
 def get_sales_summary(df):
-    # Calculate overall business metrics (Changed 'Sales Amount' to 'Sales')
+    """Get overall sales KPIs."""
     total_orders = len(df)
     total_revenue = df["Sales"].sum()
     total_profit = df["Profit"].sum()
-    avg_order_value = df["Sales"].mean()
+    avg_order_value = total_revenue / total_orders
     profit_margin = (total_profit / total_revenue) * 100
-
-    # Format everything into a readable summary string
-    return (
-        f"Sales Summary:\n"
-        f"- Total Orders: {total_orders:,}\n"
-        f"- Total Revenue: ${total_revenue:,.2f}\n"
-        f"- Total Profit: ${total_profit:,.2f}\n"
-        f"- Average Order Value: ${avg_order_value:,.2f}\n"
-        f"- Overall Profit Margin: {profit_margin:.1f}%"
-    )
-
+    
+    return {
+        "total_orders": int(total_orders),
+        "total_revenue": float(total_revenue),
+        "total_profit": float(total_profit),
+        "avg_order_value": float(avg_order_value),
+        "profit_margin": float(profit_margin)
+    }
 
 def get_revenue_by_region(df):
-    # Group orders by region and calculate aggregate stats (Changed 'Sales Amount' to 'Sales')
-    region_stats = df.groupby("Region").agg(
-        Revenue=("Sales", "sum"),
-        Profit=("Profit", "sum"),
-        Orders=("Sales", "count"),
-    ).sort_values("Revenue", ascending=False)
-
-    # Build a formatted string with one line per region
-    lines = ["Revenue by Region:"]
-    for region, row in region_stats.iterrows():
-        margin = (row["Profit"] / row["Revenue"]) * 100
-        lines.append(
-            f"- {region}: Revenue=${row['Revenue']:,.2f}, "
-            f"Profit=${row['Profit']:,.2f}, "
-            f"Orders={row['Orders']:,}, "
-            f"Margin={margin:.1f}%"
-        )
-    return "\n".join(lines)
-
+    """Calculate revenue and profit by geographic region."""
+    summary = df.groupby("Region").agg(
+        revenue=("Sales", "sum"),
+        profit=("Profit", "sum"),
+        orders=("Order ID", "count")
+    ).reset_index()
+    return summary
 
 def get_top_products(df, n=5):
-    # Group by product and rank by total revenue (Changed 'Sales Amount' to 'Sales')
-    product_stats = df.groupby("Product Name").agg(
-        Revenue=("Sales", "sum"),
-        Profit=("Profit", "sum"),
-        Quantity=("Quantity", "sum"),
-    ).sort_values("Revenue", ascending=False).head(n)
-
-    # Format a numbered list of top products
-    lines = [f"Top {n} Products by Revenue:"]
-    for i, (product, row) in enumerate(product_stats.iterrows(), 1):
-        lines.append(
-            f"{i}. {product}: Revenue=${row['Revenue']:,.2f}, "
-            f"Profit=${row['Profit']:,.2f}, "
-            f"Units Sold={row['Quantity']:,}"
-        )
-    return "\n".join(lines)
-
+    """Get top N best-selling products."""
+    top_products = df.groupby("Product Name").agg(
+        revenue=("Sales", "sum"),
+        orders=("Order ID", "count")
+    ).sort_values(by="revenue", ascending=False).head(n).reset_index()
+    return top_products
 
 def get_category_performance(df):
-    # Group by category and calculate comprehensive metrics (Changed 'Sales Amount' to 'Sales')
-    cat_stats = df.groupby("Category").agg(
-        Revenue=("Sales", "sum"),
-        Profit=("Profit", "sum"),
-        Orders=("Sales", "count"),
-        Avg_Quantity=("Quantity", "mean"),
-    ).sort_values("Revenue", ascending=False)
+    """Performance breakdown by product category."""
+    category_perf = df.groupby("Category").agg(
+        revenue=("Sales", "sum"),
+        profit=("Profit", "sum"),
+        orders=("Order ID", "count")
+    ).reset_index()
+    return category_perf
 
-    # Format each category's performance into a readable line
-    lines = ["Category Performance:"]
-    for category, row in cat_stats.iterrows():
-        margin = (row["Profit"] / row["Revenue"]) * 100
-        lines.append(
-            f"- {category}: Revenue=${row['Revenue']:,.2f}, "
-            f"Profit=${row['Profit']:,.2f}, "
-            f"Margin={margin:.1f}%, "
-            f"Orders={row['Orders']:,}, "
-            f"Avg Qty/Order={row['Avg_Quantity']:.1f}"
-        )
-    return "\n".join(lines)
 def generate_chart(df, chart_type, data_source):
+    """Generate a matplotlib chart and return the temporary file path."""
     fig, ax = plt.subplots(figsize=(10, 6))
+    
     # Build the chart based on data source and chart type
     if data_source == "region":
+        # FIXED: Changed "Sales Amount" to "Sales"
         data = df.groupby("Region")["Sales"].sum().sort_values(ascending=False)
         if chart_type == "bar":
             data.plot(kind="bar", ax=ax, color=["#2196F3", "#4CAF50", "#FF9800", "#F44336"])
@@ -111,7 +68,9 @@ def generate_chart(df, chart_type, data_source):
             data.plot(kind="line", ax=ax, marker="o", color="#2196F3")
         ax.set_title("Revenue by Region", fontsize=16)
         ax.set_ylabel("Revenue ($)")
+        
     elif data_source == "category":
+        # FIXED: Changed "Sales Amount" to "Sales"
         data = df.groupby("Category")["Sales"].sum().sort_values(ascending=False)
         if chart_type == "bar":
             data.plot(kind="bar", ax=ax, color=["#2196F3", "#4CAF50", "#FF9800"])
@@ -119,8 +78,10 @@ def generate_chart(df, chart_type, data_source):
             data.plot(kind="line", ax=ax, marker="o", color="#2196F3")
         ax.set_title("Revenue by Category", fontsize=16)
         ax.set_ylabel("Revenue ($)")
+        
     elif data_source == "monthly":
-        monthly = df.set_index("Order Date")["Sales Amount"].resample("ME").sum()
+        # FIXED: Changed "Sales Amount" to "Sales"
+        monthly = df.set_index("Order Date")["Sales"].resample("ME").sum()
         if chart_type == "line":
             monthly.plot(kind="line", ax=ax, marker="o", color="#2196F3")
         else:
@@ -128,22 +89,12 @@ def generate_chart(df, chart_type, data_source):
         ax.set_title("Monthly Sales Trend", fontsize=16)
         ax.set_ylabel("Revenue ($)")
         plt.xticks(rotation=45)
+        
     ax.set_xlabel("")
     plt.tight_layout()
+    
     # Save to a temporary file and return the path
     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     fig.savefig(tmp.name, dpi=100)
     plt.close(fig)
     return tmp.name
-
-
-if __name__ == "__main__":
-    df = load_data()
-    print(f"Loaded {len(df)} orders\n")
-    print(get_sales_summary(df))
-    print()
-    print(get_revenue_by_region(df))
-    print()
-    print(get_top_products(df))
-    print()
-    print(get_category_performance(df))
