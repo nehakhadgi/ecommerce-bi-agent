@@ -12,7 +12,7 @@ from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_p
 # Configure the Streamlit page
 st.set_page_config(page_title="E-Commerce BI Agent", page_icon="📊", layout="wide")
 
-# --- MULTI-KEY ROTATION SYSTEM (WITH SECURE DIAGNOSTICS) ---
+# --- MULTI-KEY ROTATION SYSTEM (QUOTE-PROOFED) ---
 keys_string = os.environ.get("GOOGLE_API_KEYS") or st.secrets.get("GOOGLE_API_KEYS") or ""
 
 API_KEYS = []
@@ -45,6 +45,7 @@ def get_active_client():
     active_key = API_KEYS[st.session_state.current_key_index]
     return genai.Client(api_key=active_key)
 
+# Execution wrapper with automatic key rotation and 503 backoff
 def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", max_503_retries=3, delay_503=5):
     attempts = len(API_KEYS)
     
@@ -52,6 +53,7 @@ def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", m
         try:
             client = get_active_client()
             
+            # Inner loop to handle temporary 503 server overloads
             for attempt_503 in range(max_503_retries):
                 try:
                     return client.models.generate_content(
@@ -191,7 +193,6 @@ with st.sidebar:
     st.write(f"**Active Key Index:** #{st.session_state.current_key_index + 1}")
     
     for idx, key in enumerate(API_KEYS):
-        # Mask the key for absolute security
         if len(key) > 12:
             masked = f"{key[:8]}...{key[-4:]}"
         else:
@@ -226,12 +227,20 @@ if prompt := st.chat_input("Ask a business question..."):
                 tools=[tools],
                 system_instruction=SYSTEM_PROMPT,
             )
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=prompt)]
+            
+            # --- EXPERT FIX: THE STATEFUL CONVERSATION MEMORY PIPELINE ---
+            # Reconstruct the entire past conversation history into structured Content objects
+            contents = []
+            for msg in st.session_state.messages:
+                role = "user" if msg["role"] == "user" else "model"
+                msg_content = msg.get("content") or ""
+                contents.append(
+                    types.Content(
+                        role=role,
+                        parts=[types.Part.from_text(text=msg_content)]
+                    )
                 )
-            ]
+            # -------------------------------------------------------------
             
             # Execute with multi-key rotation and retry logic
             try:
