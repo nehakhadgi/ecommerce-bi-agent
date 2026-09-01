@@ -104,7 +104,7 @@ st.markdown(
 with st.sidebar:
     st.header("About the Dataset")
     st.metric("Total Orders", f"{len(df):,}")
-    st.metric("Total Revenue", f"${df['Sales Amount'].sum():,.0f}")
+    st.metric("Total Revenue", f"${df['Sales'].sum():,.0f}")
     st.metric("Total Profit", f"${df['Profit'].sum():,.0f}")
     st.markdown("---")
     st.markdown("**Categories:** Electronics, Accessories, Office")
