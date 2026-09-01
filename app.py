@@ -11,16 +11,27 @@ from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_p
 # Configure the Streamlit page
 st.set_page_config(page_title="E-Commerce BI Agent", page_icon="📊", layout="wide")
 
-# --- MULTI-KEY ROTATION SYSTEM ---
+# --- MULTI-KEY ROTATION SYSTEM (QUOTE-PROOFED) ---
 # 1. Parse keys string from environment or secrets into an active list
 keys_string = os.environ.get("GOOGLE_API_KEYS") or st.secrets.get("GOOGLE_API_KEYS") or ""
-API_KEYS = [k.strip() for k in keys_string.split(",") if k.strip()]
+
+API_KEYS = []
+if keys_string:
+    # Split by comma first
+    raw_keys = keys_string.split(",")
+    for k in raw_keys:
+        # Strip whitespaces AND any literal double or single quotation marks
+        clean_k = k.strip().replace('"', '').replace("'", "")
+        if clean_k:
+            API_KEYS.append(clean_k)
 
 # Fallback to single key if multi-key string isn't found
 if not API_KEYS:
     single_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
     if single_key:
-        API_KEYS = [single_key]
+        clean_single = single_key.strip().replace('"', '').replace("'", "")
+        if clean_single:
+            API_KEYS = [clean_single]
 
 if not API_KEYS:
     st.error("Please configure GOOGLE_API_KEYS in your secrets or .env file.")
@@ -35,7 +46,6 @@ def get_active_client():
     active_key = API_KEYS[st.session_state.current_key_index]
     return genai.Client(api_key=active_key)
 
-# 3. Execution wrapper with automatic key rotation and 503 backoff
 # 3. Execution wrapper with automatic key rotation and 503 backoff
 def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", max_503_retries=3, delay_503=5):
     attempts = len(API_KEYS)
@@ -72,7 +82,7 @@ def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", m
                 if is_auth_error:
                     st.warning(f"⚠️ Key #{current_bad_index + 1} has invalid credentials. Skipping and trying Key #{next_index + 1}...")
                 else:
-                    st.warning(f"⚠️ Key #{current_bad_index + 1} quota exhausted. Automatically rotating to Key #{next_index + 1}...")
+                    st.warning(f"⚠️ Key #{current_bad_index + 1} quota exceeded. Automatically rotating to Key #{next_index + 1}...")
                 continue
             raise e
         except Exception as e:
