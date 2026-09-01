@@ -12,7 +12,7 @@ from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_p
 # Configure the Streamlit page
 st.set_page_config(page_title="E-Commerce BI Agent", page_icon="📊", layout="wide")
 
-# --- MULTI-KEY ROTATION SYSTEM (QUOTE-PROOFED) ---
+# --- MULTI-KEY ROTATION SYSTEM (QUOTE-PROOFED & VISUALLY SAFE) ---
 keys_string = os.environ.get("GOOGLE_API_KEYS") or st.secrets.get("GOOGLE_API_KEYS") or ""
 
 API_KEYS = []
@@ -77,6 +77,7 @@ def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", m
                 next_index = (current_bad_index + 1) % len(API_KEYS)
                 st.session_state.current_key_index = next_index
                 
+                # Active screen warnings return, referencing only safe key numbers!
                 if is_auth_error:
                     st.warning(f"⚠️ Key #{current_bad_index + 1} has invalid credentials. Skipping and trying Key #{next_index + 1}...")
                 else:
@@ -193,15 +194,13 @@ with st.sidebar:
     st.write(f"**Active Key Index:** #{st.session_state.current_key_index + 1}")
     
     for idx, key in enumerate(API_KEYS):
-        if len(key) > 12:
-            masked = f"{key[:8]}...{key[-4:]}"
-        else:
-            masked = "INVALID_LENGTH"
-        st.write(f"Key #{idx+1}: `{masked}` (Chars: {len(key)})")
+        # SECURE WORKAROUND: We hide the actual letters completely! Only show Key number and safe character length.
+        st.write(f"Key #{idx+1}: ✔️ Active (Chars: {len(key)})")
         
     st.markdown("---")
     st.markdown("**Categories:** Electronics, Accessories, Office")
     st.markdown("**Regions:** North, South, East, West")
+    st.markdown("**Period:** 2022-2024")
 
 # Initialize chat history pipelines in session state
 if "messages" not in st.session_state:
@@ -216,7 +215,7 @@ for message in st.session_state.messages:
         if "chart_path" in message and message["chart_path"]:
             st.image(message["chart_path"])
 
-# Helper function to extract text securely from any GenerateContentResponse
+# Helper function to extract text safely
 def extract_text_safely(response, fallback_text="Could not extract textual content from response."):
     if not response or not response.candidates:
         return fallback_text
@@ -225,7 +224,6 @@ def extract_text_safely(response, fallback_text="Could not extract textual conte
     if not candidate.content or not candidate.content.parts:
         return fallback_text
         
-    # Attempt to concatenate all text parts
     text_parts = [p.text for p in candidate.content.parts if p.text]
     if text_parts:
         return "".join(text_parts)
@@ -313,7 +311,7 @@ if prompt := st.chat_input("Ask a business question..."):
                 )
                 st.session_state.api_history.append(model_fc_content)
                 
-                # Append the tool's response content to api_history (using 'user' role for schema compatibility)
+                # Append the tool's response content to api_history
                 fn_response_part = types.Part(
                     function_response=types.FunctionResponse(
                         id=fc.id,
@@ -331,14 +329,12 @@ if prompt := st.chat_input("Ask a business question..."):
                         config=config,
                         model="gemini-3.6-flash"
                     )
-                    # Use our secure text extractor!
                     extracted_text = extract_text_safely(final_response, fallback_text=None)
                     
                     if extracted_text is not None:
                         answer = extracted_text
                     else:
-                        # ZERO-HISTORY FALLBACK: If the accumulated history call returns None,
-                        # attempt a stateless execution using only the current prompt and the tool response
+                        # Zero-History Fallback Loop
                         stateless_contents = [
                             types.Content(role="user", parts=[types.Part.from_text(text=f"Process this tool output: {tool_result_text}. User prompt was: {prompt}")]),
                         ]
@@ -352,7 +348,7 @@ if prompt := st.chat_input("Ask a business question..."):
                     st.error(f"❌ Google API error during summary: {e.message}. Please try again!")
                     st.stop()
                     
-                # Append the final response content to api_history if successful
+                # Append final response to api_history if successful
                 if answer:
                     model_final_content = types.Content(
                         role="model",
@@ -367,7 +363,6 @@ if prompt := st.chat_input("Ask a business question..."):
                 )
                 st.session_state.api_history.append(model_text_content)
                 
-            # If all else fails, do not allow None to render
             if answer is None:
                 answer = "The API was unable to construct a summary response. Please try submitting your query again!"
                 
