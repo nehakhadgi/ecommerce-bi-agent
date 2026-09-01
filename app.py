@@ -1,23 +1,77 @@
 import os
 import json
-import time  # Added for retry pauses
+import time  
 import streamlit as st
 import pandas as pd
 from google import genai
 from google.genai import types
-from google.genai.errors import APIError  # Catch SDK-specific API exceptions
+from google.genai.errors import APIError  
 from tools import load_data, get_sales_summary, get_revenue_by_region, get_top_products, get_category_performance, generate_chart
 
 # Configure the Streamlit page
 st.set_page_config(page_title="E-Commerce BI Agent", page_icon="📊", layout="wide")
 
-# Load API key from environment variable or Streamlit secrets
-api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
-if not api_key:
-    st.error("Please set your GOOGLE_API_KEY in .env or Streamlit secrets.")
+# --- MULTI-KEY ROTATION SYSTEM ---
+# 1. Parse keys string from environment or secrets into an active list
+keys_string = os.environ.get("GOOGLE_API_KEYS") or st.secrets.get("GOOGLE_API_KEYS") or ""
+API_KEYS = [k.strip() for k in keys_string.split(",") if k.strip()]
+
+# Fallback to single key if multi-key string isn't found
+if not API_KEYS:
+    single_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY")
+    if single_key:
+        API_KEYS = [single_key]
+
+if not API_KEYS:
+    st.error("Please configure GOOGLE_API_KEYS in your secrets or .env file.")
     st.stop()
 
-client = genai.Client(api_key=api_key)
+# 2. Track active key index in session state so it persists between page reruns
+if "current_key_index" not in st.session_state:
+    st.session_state.current_key_index = 0
+
+def get_active_client():
+    """Instantiate a client using the currently active rotated key index."""
+    active_key = API_KEYS[st.session_state.current_key_index]
+    return genai.Client(api_key=active_key)
+
+# 3. Execution wrapper with automatic key rotation and 503 backoff
+def generate_content_with_rotation(contents, config, model="gemini-3.6-flash", max_503_retries=3, delay_503=5):
+    attempts = len(API_KEYS)
+    
+    for _ in range(attempts):
+        try:
+            client = get_active_client()
+            
+            # Inner loop to handle temporary 503 server overloads
+            for attempt_503 in range(max_503_retries):
+                try:
+                    return client.models.generate_content(
+                        model=model,
+                        contents=contents,
+                        config=config,
+                    )
+                except APIError as e:
+                    if e.code == 503 and attempt_503 < max_503_retries - 1:
+                        st.warning(f"⚠️ Google API servers are busy (503). Retrying in {delay_503} seconds... (Attempt {attempt_503+1}/{max_503_retries})")
+                        time.sleep(delay_503)
+                        continue
+                    raise e
+                    
+        except APIError as e:
+            # If hit 429 daily quota or rate limit, rotate keys and try again!
+            if e.code == 429:
+                next_index = (st.session_state.current_key_index + 1) % len(API_KEYS)
+                st.session_state.current_key_index = next_index
+                st.warning(f"⚠️ Key #{st.session_state.current_key_index} quota exhausted. Automatically rotating to Key #{next_index + 1}...")
+                continue
+            raise e
+        except Exception as e:
+            raise e
+            
+    st.error("❌ All configured API key quotas are exhausted for today. Please try again tomorrow!")
+    st.stop()
+# ---------------------------------
 
 # Cache data so it only loads once per session
 @st.cache_data
@@ -26,35 +80,20 @@ def get_data():
 
 df = get_data()
 
-# Helper function to execute API calls with automatic retry backoff
-def generate_content_with_retry(client, model, contents, config, max_retries=3, delay=5):
-    for attempt in range(max_retries):
-        try:
-            return client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
-        except APIError as e:
-            # If server is overloaded (503), print warning and sleep before retrying
-            if e.code == 503 and attempt < max_retries - 1:
-                st.warning(f"⚠️ Google API servers are busy (503). Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})")
-                time.sleep(delay)
-                continue
-            raise e  # Re-raise error if we have exhausted retries or encountered another error
-        except Exception as e:
-            raise e
-
-# Map tool names to their Python functions
+# Protect lambdas from hallucinated arguments using catch-all **kwargs
 TOOL_FUNCTIONS = {
-    "get_sales_summary": lambda: get_sales_summary(df),
-    "get_revenue_by_region": lambda: get_revenue_by_region(df),
-    "get_top_products": lambda n=5: get_top_products(df, n=int(n)),
-    "get_category_performance": lambda: get_category_performance(df),
-    "generate_chart": lambda chart_type="bar", data_source="region": generate_chart(df, chart_type, data_source),
+    "get_sales_summary": lambda *args, **kwargs: get_sales_summary(df),
+    "get_revenue_by_region": lambda *args, **kwargs: get_revenue_by_region(df),
+    "get_top_products": lambda *args, **kwargs: get_top_products(df, n=int(kwargs.get("n", 5))),
+    "get_category_performance": lambda *args, **kwargs: get_category_performance(df),
+    "generate_chart": lambda *args, **kwargs: generate_chart(
+        df, 
+        chart_type=kwargs.get("chart_type", "bar"), 
+        data_source=kwargs.get("data_source", "region")
+    ),
 }
 
-tool_declarations = [  # Declare the tools Gemini can choose from
+tool_declarations = [
     {
         "name": "get_sales_summary",
         "description": "Get an overall summary of sales performance including total orders, revenue, profit, average order value, and profit margin.",
@@ -142,7 +181,6 @@ if "messages" not in st.session_state:
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-        # Re-display any chart saved in this message
         if "chart_path" in message and message["chart_path"]:
             st.image(message["chart_path"])
 
@@ -159,7 +197,6 @@ if prompt := st.chat_input("Ask a business question..."):
                 tools=[tools],
                 system_instruction=SYSTEM_PROMPT,
             )
-            # Structured Content & Part objects for payload
             contents = [
                 types.Content(
                     role="user",
@@ -167,16 +204,15 @@ if prompt := st.chat_input("Ask a business question..."):
                 )
             ]
             
-            # First execution using our robust retry wrapper
+            # Execute with multi-key rotation and retry logic
             try:
-                response = generate_content_with_retry(
-                    client=client,
-                    model="gemini-3.6-flash",
+                response = generate_content_with_rotation(
                     contents=contents,
                     config=config,
+                    model="gemini-3.6-flash"
                 )
             except APIError as e:
-                st.error(f"❌ Google API is currently unavailable: {e.message}. Please wait a few seconds and try again!")
+                st.error(f"❌ Google API error: {e.message}. Please try again later!")
                 st.stop()
             except Exception as e:
                 st.error(f"An unexpected error occurred: {str(e)}")
@@ -192,18 +228,21 @@ if prompt := st.chat_input("Ask a business question..."):
                 func_args = dict(fc.args) if fc.args else {}
                 st.caption(f"🔧 Agent called: `{func_name}({func_args})`")
                 
-                # Execute the tool and get results
-                if func_name in TOOL_FUNCTIONS:
-                    result = TOOL_FUNCTIONS[func_name](**func_args)
-                else:
-                    result = f"Error: Unknown tool '{func_name}'"
+                # Execute the tool safely inside a try-except block
+                try:
+                    if func_name in TOOL_FUNCTIONS:
+                        result = TOOL_FUNCTIONS[func_name](**func_args)
+                    else:
+                        result = f"Error: Unknown tool '{func_name}'"
+                except Exception as tool_err:
+                    st.error(f"❌ Failed to run tool '{func_name}': {str(tool_err)}")
+                    st.stop()
                     
                 # Detect chart results and prepare display
                 if func_name == "generate_chart" and os.path.exists(str(result)):
                     chart_path = result
                     tool_result_text = f"Chart generated and saved to {result}"
                 else:
-                    # Coerce Pandas/NumPy types to native Python types via JSON round-trip
                     if isinstance(result, pd.DataFrame):
                         tool_result_text = json.loads(result.to_json(orient="records", date_format="iso"))
                     elif isinstance(result, pd.Series):
@@ -211,7 +250,6 @@ if prompt := st.chat_input("Ask a business question..."):
                     else:
                         tool_result_text = result
                     
-                # Explicitly package the model's call with role="model" to prevent API payload errors
                 contents.append(
                     types.Content(
                         role="model",
@@ -219,7 +257,6 @@ if prompt := st.chat_input("Ask a business question..."):
                     )
                 )
                 
-                # Reconstruct tool response part
                 fn_response_part = types.Part(
                     function_response=types.FunctionResponse(
                         id=fc.id,
@@ -227,28 +264,25 @@ if prompt := st.chat_input("Ask a business question..."):
                         response={"result": tool_result_text},
                     )
                 )
-                # Map tool role to user for Gemini API gateway compliance
                 contents.append(types.Content(role="user", parts=[fn_response_part]))
                 
-                # Second execution using our robust retry wrapper
+                # Execute follow-up with rotation
                 try:
-                    final_response = generate_content_with_retry(
-                        client=client,
-                        model="gemini-3.6-flash",
+                    final_response = generate_content_with_rotation(
                         contents=contents,
                         config=config,
+                        model="gemini-3.6-flash"
                     )
                     answer = final_response.text
                 except APIError as e:
-                    st.error(f"❌ Google API is currently unavailable: {e.message}. Please wait a few seconds and try again!")
+                    st.error(f"❌ Google API error during summary: {e.message}. Please try again!")
                     st.stop()
             else:
                 answer = part.text
                 
             st.markdown(answer)
-            # Display the chart image if one was generated
             if chart_path:
                 st.image(chart_path)
 
-    # Save the answer and chart path to session state
+    # Save details to session state
     st.session_state.messages.append({"role": "assistant", "content": answer, "chart_path": chart_path})
