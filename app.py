@@ -171,7 +171,7 @@ if prompt := st.chat_input("Ask a business question..."):
                     chart_path = result
                     tool_result_text = f"Chart generated and saved to {result}"
                 else:
-                    # EXPERT FIX: Coerce Pandas/NumPy types to native Python types via JSON round-trip
+                    # Coerce Pandas/NumPy types to native Python types via JSON round-trip
                     if isinstance(result, pd.DataFrame):
                         tool_result_text = json.loads(result.to_json(orient="records", date_format="iso"))
                     elif isinstance(result, pd.Series):
@@ -179,7 +179,7 @@ if prompt := st.chat_input("Ask a business question..."):
                     else:
                         tool_result_text = result
                     
-                # EXPERT FIX: Explicitly package the model's call with role="model" to prevent API payload errors
+                # Explicitly package the model's call with role="model" to prevent API payload errors
                 contents.append(
                     types.Content(
                         role="model",
@@ -187,7 +187,7 @@ if prompt := st.chat_input("Ask a business question..."):
                     )
                 )
                 
-                # Fixed to avoid SDK TypeError
+                # Reconstruct tool response part
                 fn_response_part = types.Part(
                     function_response=types.FunctionResponse(
                         id=fc.id,
@@ -195,7 +195,8 @@ if prompt := st.chat_input("Ask a business question..."):
                         response={"result": tool_result_text},
                     )
                 )
-                contents.append(types.Content(role="tool", parts=[fn_response_part]))
+                # EXPERT FIX: Change role from "tool" to "user" to satisfy Gemini strict gateway validation!
+                contents.append(types.Content(role="user", parts=[fn_response_part]))
                 
                 final_response = client.models.generate_content(
                     model="gemini-3.6-flash",
