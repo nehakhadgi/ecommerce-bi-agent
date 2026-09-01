@@ -173,16 +173,19 @@ if prompt := st.chat_input("Ask a business question..."):
                 else:
                     # EXPERT FIX: Coerce Pandas/NumPy types to native Python types via JSON round-trip
                     if isinstance(result, pd.DataFrame):
-                        # Use pandas native JSON engine to clean NumPy types and NaN values cleanly,
-                        # then read back into Python primitives (standard dicts/lists).
                         tool_result_text = json.loads(result.to_json(orient="records", date_format="iso"))
                     elif isinstance(result, pd.Series):
                         tool_result_text = json.loads(result.to_json(date_format="iso"))
                     else:
                         tool_result_text = result
                     
-                # Send the tool result back to Gemini for a final answer
-                contents.append(response.candidates[0].content)
+                # EXPERT FIX: Explicitly package the model's call with role="model" to prevent API payload errors
+                contents.append(
+                    types.Content(
+                        role="model",
+                        parts=[part]
+                    )
+                )
                 
                 # Fixed to avoid SDK TypeError
                 fn_response_part = types.Part(
