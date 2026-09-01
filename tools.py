@@ -33,7 +33,7 @@ def get_revenue_by_region(df):
     summary = df.groupby("Region").agg(
         revenue=("Sales", "sum"),
         profit=("Profit", "sum"),
-        orders=("Order ID", "count")
+        orders=("Sales", "count")  # FIXED: Count orders using the Sales column!
     ).reset_index()
     return summary
 
@@ -41,7 +41,7 @@ def get_top_products(df, n=5):
     """Get top N best-selling products."""
     top_products = df.groupby("Product Name").agg(
         revenue=("Sales", "sum"),
-        orders=("Order ID", "count")
+        orders=("Sales", "count")  # FIXED: Count orders using the Sales column!
     ).sort_values(by="revenue", ascending=False).head(n).reset_index()
     return top_products
 
@@ -50,7 +50,7 @@ def get_category_performance(df):
     category_perf = df.groupby("Category").agg(
         revenue=("Sales", "sum"),
         profit=("Profit", "sum"),
-        orders=("Order ID", "count")
+        orders=("Sales", "count")  # FIXED: Count orders using the Sales column!
     ).reset_index()
     return category_perf
 
@@ -60,7 +60,6 @@ def generate_chart(df, chart_type, data_source):
     
     # Build the chart based on data source and chart type
     if data_source == "region":
-        # FIXED: Changed "Sales Amount" to "Sales"
         data = df.groupby("Region")["Sales"].sum().sort_values(ascending=False)
         if chart_type == "bar":
             data.plot(kind="bar", ax=ax, color=["#2196F3", "#4CAF50", "#FF9800", "#F44336"])
@@ -70,7 +69,6 @@ def generate_chart(df, chart_type, data_source):
         ax.set_ylabel("Revenue ($)")
         
     elif data_source == "category":
-        # FIXED: Changed "Sales Amount" to "Sales"
         data = df.groupby("Category")["Sales"].sum().sort_values(ascending=False)
         if chart_type == "bar":
             data.plot(kind="bar", ax=ax, color=["#2196F3", "#4CAF50", "#FF9800"])
@@ -80,7 +78,6 @@ def generate_chart(df, chart_type, data_source):
         ax.set_ylabel("Revenue ($)")
         
     elif data_source == "monthly":
-        # FIXED: Changed "Sales Amount" to "Sales"
         monthly = df.set_index("Order Date")["Sales"].resample("ME").sum()
         if chart_type == "line":
             monthly.plot(kind="line", ax=ax, marker="o", color="#2196F3")
